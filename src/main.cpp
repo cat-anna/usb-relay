@@ -12,9 +12,7 @@ extern "C" {
 #include "calibrate.h"
 }
 
-#define BIT_LED 2
-
-#define LED_PORT_DDR DDRB
+#define LED_PORT_DDR    DDRB
 #define LED_PORT_OUTPUT PORTB
 #define LED_BIT 1
 
@@ -24,6 +22,7 @@ extern "C" {
 
 enum {
   COMMAND_DEVICE_RESTART = 0x01,
+  COMMAND_DEVICE_PING = 0x02,
 
   COMMAND_BIT_WRITE =
       0x10, // value_low=bit_value; index_low=bit_index, [index_hi=device_id],
@@ -43,7 +42,7 @@ enum {
 
   COMMAND_DEVICE_WRITE_DEFAULT_VALUE = 0x40,
 
-  COMMAND_DEVICE_WRITE_TAG = 0x42, 
+  COMMAND_DEVICE_WRITE_TAG = 0x42,
   COMMAND_DEVICE_READ_TAG = 0x43,
 };
 
@@ -77,10 +76,12 @@ struct Configuration {
     uint32_t tag;
     uint16_t tag_words[2];
   };
+  uint8_t led_timeout;
 
-  void set_default() { 
-    startup_value = 0; 
+  void set_default() {
+    startup_value = 0;
     tag = 0;
+    led_timeout = 20;
   }
 
   void read() {
@@ -113,40 +114,85 @@ uint8_t current_command = 0;
 
 BitCommandData pin_update_data;
 
+uint8_t usb_respose_buffer[8];
+
+/* ------------------------------------------------------------------------- */
+
+void LedOff() { LED_PORT_OUTPUT &= ~(_BV(LED_BIT)); }
+void LedOn() { LED_PORT_OUTPUT |= _BV(LED_BIT); }
+
+uint8_t led_timeout = 0;
+
+void RestTimer0() {
+    LedOn();
+    led_timeout = current_configuration.led_timeout;
+}
+
+ISR(TIMER1_OVF_vect) {
+  if(led_timeout > 0) {
+    --led_timeout;
+    if(led_timeout == 0) {
+      LedOff();
+    }
+  }
+}
+
+void timer1_setup() {
+  TCCR1 |= _BV(CS10) | _BV(CS11) | _BV(CS12) | _BV(CS13); //precale /16384
+  TCNT1 = 0;
+  TIMSK |= _BV(TOIE1);
+}
+
 /* ------------------------------------------------------------------------- */
 
 usbMsgLen_t dispatch_usb_command(usbRequest_t *message) {
   switch (message->bRequest) {
   case COMMAND_I2C_START_SCAN:
   case COMMAND_DEVICE_RESTART:
+    RestTimer0();
     current_command = message->bRequest;
     return 0;
 
+  case COMMAND_DEVICE_PING:
+    RestTimer0();
+    usb_respose_buffer[0] = message->wIndex.bytes[0];
+    usb_respose_buffer[1] = message->wIndex.bytes[1];
+    usb_respose_buffer[3] = message->wValue.bytes[0];
+    usb_respose_buffer[4] = message->wValue.bytes[1];
+    usbMsgPtr = usb_respose_buffer;
+    return 4;
+
   case COMMAND_BIT_WRITE:
+    RestTimer0();
     pin_update_data.operation = BIT_OPERATION_WRITE_BIT;
     // pin_update_data.device = &current_i2c_device;
     pin_update_data.bit = message->wIndex.bytes[0];
     pin_update_data.value = message->wValue.bytes[0];
     return 0;
   case COMMAND_VALUE_WRITE:
+    RestTimer0();
     pin_update_data.operation = BIT_OPERATION_WRITE_VALUE;
     // pin_update_data.device = &current_i2c_device;
     // pin_update_data.bit = message->wIndex.bytes[0]; // not used
     pin_update_data.value = message->wValue.bytes[0];
     return 0;
   case COMMAND_DEVICE_WRITE_DEFAULT_VALUE:
+    RestTimer0();
     configuration_dirty = true;
     current_configuration.startup_value = message->wValue.bytes[0];
     return 0;
   case COMMAND_I2C_GET_DEVICE_MAP:
+    RestTimer0();
     usbMsgPtr = i2c_scan_result;
     return sizeof(i2c_scan_result);
   case COMMAND_DEVICE_WRITE_TAG:
+    RestTimer0();
     configuration_dirty = true;
     current_configuration.tag_words[0] = message->wIndex.word;
     current_configuration.tag_words[1] = message->wValue.word;
     return 0;
   case COMMAND_DEVICE_READ_TAG:
+    RestTimer0();
     usbMsgPtr = (uint8_t*)&current_configuration.tag;
     return sizeof(current_configuration.tag);
   }
@@ -200,7 +246,9 @@ int main() {
     _delay_ms(1);
   }
   usbDeviceConnect();
+  timer1_setup();
   LED_PORT_DDR |= _BV(LED_BIT); /* make the LED bit an output */
+  LedOff();
   sei();
   DBG1(0x01, 0, 0);   /* debug output: main loop starts */
   for (;;) {          /* main event loop */

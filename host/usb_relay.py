@@ -31,12 +31,12 @@ class UsbRelay:
 
     def restart_device(self):
         try:
-            self.usb_device.ctrl_transfer(0x40, COMMAND_DEVICE_RESTART, 0, 0, 0) 
+            self.usb_device.ctrl_transfer(0x40, COMMAND_DEVICE_RESTART, 0, 0, 0)
         except:
             pass
 
     def i2c_scan(self):
-        self.usb_device.ctrl_transfer(0x40, COMMAND_I2C_START_SCAN, 0, 0, 0) 
+        self.usb_device.ctrl_transfer(0x40, COMMAND_I2C_START_SCAN, 0, 0, 0)
         time.sleep(0.1)
         response = self.usb_device.ctrl_transfer(0xC0, COMMAND_I2C_GET_DEVICE_MAP, 0, 0, 16)
         r=[]
@@ -49,17 +49,17 @@ class UsbRelay:
         return r
 
     def write_bit(self, bit, value):
-        self.usb_device.ctrl_transfer(0x40, COMMAND_BIT_WRITE, 1 if value else 0, bit, 0) 
-  
+        self.usb_device.ctrl_transfer(0x40, COMMAND_BIT_WRITE, 1 if value else 0, bit, 0)
+
     def write_value(self, value):
-        self.usb_device.ctrl_transfer(0x40, COMMAND_VALUE_WRITE, value, 0, 0) 
+        self.usb_device.ctrl_transfer(0x40, COMMAND_VALUE_WRITE, value, 0, 0)
 
     def write_default_value(self, value):
-        self.usb_device.ctrl_transfer(0x40, COMMAND_DEVICE_WRITE_DEFAULT_VALUE, value, 0, 0) 
+        self.usb_device.ctrl_transfer(0x40, COMMAND_DEVICE_WRITE_DEFAULT_VALUE, value, 0, 0)
 
     def get_tag(self):
         return self.usb_device.ctrl_transfer(0xC0, COMMAND_DEVICE_READ_TAG, 0, 0, 4)
-   
+
     def set_tag(self, tag):
         self.usb_device.ctrl_transfer(0x40, COMMAND_DEVICE_WRITE_TAG, (tag >> 16) & 0xFFFF, (tag & 0xFFFF), 0)
 
@@ -100,7 +100,7 @@ def main():
     args = parser.parse_args()
     # print(args)
 
-    relay = UsbRelay(find_single_device()) 
+    relay = UsbRelay(find_single_device())
     if args.command == "restart":
         relay.restart_device()
         return
@@ -109,12 +109,13 @@ def main():
         return
     if args.command == "value":
         relay.write_value(*args.args)
-        return    
+        return
     if args.command == "write-default":
         relay.write_default_value(*args.args)
         return
     if args.command == "i2c-scan":
-        print(" ".join([f"0x{x:02x}" for x in relay.i2c_scan() ]))
+        r = relay.i2c_scan()
+        print(f"({len(r)}): " + " ".join([f"0x{x:02x}" for x in r ]))
         return
     if args.command == "get-tag":
         result = relay.get_tag()
